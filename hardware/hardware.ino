@@ -27,8 +27,8 @@ TaskHandle_t xNTPHandle;
 #define DHT_PIN 32
 #define DHT_TYPE DHT22
 
-#define SOIL_PIN 14
-#define SOIL_DRY  3200  // Raw ADC value in dry air / dry soil
+#define SOIL_PIN 33
+#define SOIL_DRY  2500  // Raw ADC value in dry air / dry soil
 #define SOIL_WET  1100  // Raw ADC value in water / saturated soil
 
 #define SEA_LEVEL_HPA   1013.25 //to maths altitude
@@ -39,12 +39,12 @@ TaskHandle_t xNTPHandle;
 #define HEADER_H 24
 #define MARGIN 6
 #define GUTTER 4
-#define CARD_W ((SCREEN_W - (MARGIN * 2) - GUTTER) / 2)
-#define CARD_H ((SCREEN_H - HEADER_H - (MARGIN * 2) - GUTTER) / 2)
+#define BAR_W (SCREEN_W - (MARGIN * 2))
+#define BAR_H 44
 
 #define REFRESH_MS 2000UL
 #define HISTORY_SIZE 30
-#define SPARKLINE_H 25
+#define SPARKLINE_H 28
 #define WIFI_RETRY_MS 10000UL
 #define DHT_WAIT_MS 2000UL
 
@@ -58,10 +58,12 @@ typedef struct {
   int16_t h;
 } Rect;
 
-static const Rect TEMP_CARD = {MARGIN, HEADER_H + MARGIN, CARD_W, CARD_H};
-static const Rect HUM_CARD = {MARGIN + CARD_W + GUTTER, HEADER_H + MARGIN, CARD_W, CARD_H};
-static const Rect PRESS_CARD = {MARGIN, HEADER_H + MARGIN + CARD_H + GUTTER, CARD_W, CARD_H};
-static const Rect SOIL_CARD = {MARGIN + CARD_W + GUTTER, HEADER_H + MARGIN + CARD_H + GUTTER, CARD_W, CARD_H};
+static const Rect BAR_1 = {MARGIN, HEADER_H + MARGIN, BAR_W, BAR_H};
+static const Rect BAR_2 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 1, BAR_W, BAR_H};
+static const Rect BAR_3 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 2, BAR_W, BAR_H};
+static const Rect BAR_4 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 3, BAR_W, BAR_H};
+static const Rect BAR_5 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 4, BAR_W, BAR_H};
+static const Rect BAR_6 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 5, BAR_W, BAR_H};
 static const Rect CLOCK_AREA = {SCREEN_W - 60, 0, 54, HEADER_H};
 
 static Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
@@ -86,7 +88,9 @@ static int bmp_ready = 0;
 static float current_temp = NAN;
 static float current_hum = NAN;
 static float current_pressure = NAN;
-static float current_soil = 62.0f;
+static float current_altitude = NAN;
+static float current_soil = NAN;
+static float current_heat_index = NAN;
 static int current_online = 0;
 static int current_rssi = 0;
 static unsigned long current_uptime = 0;
@@ -94,31 +98,41 @@ static unsigned long current_uptime = 0;
 static char shown_temp[16] = "";
 static char shown_hum[16] = "";
 static char shown_press[16] = "";
+static char shown_alt[16] = "";
 static char shown_soil[16] = "";
+static char shown_rssi_bar[16] = "";
 static char shown_clock[16] = "";
-static char shown_rssi[8] = "";
+static char shown_rssi_hdr[8] = "";
+static char shown_heat[16] = "";
 static int shown_online = -1;
 static int first_frame = 1;
 
 static float temp_history[HISTORY_SIZE];
 static float hum_history[HISTORY_SIZE];
 static float press_history[HISTORY_SIZE];
+static float alt_history[HISTORY_SIZE];
 static float soil_history[HISTORY_SIZE];
+static float rssi_history[HISTORY_SIZE];
+static float heat_history[HISTORY_SIZE];
 static uint8_t history_index = 0;
 
 static uint16_t temp_spark_color;
 static uint16_t hum_spark_color;
 static uint16_t press_spark_color;
+static uint16_t alt_spark_color;
 static uint16_t soil_spark_color;
+static uint16_t rssi_spark_color;
+static uint16_t heat_spark_color;
 
 static int bmp280_init(void);
 static int bmp280_read(void);
 static int dht22_read(void);
+static int soil_read(void);
 static void wifi_connect(void);
 static void wifi_check(void);
 static void draw_shell(void);
 static void draw_label(Rect r, const char *text);
-static void draw_card(Rect r, const char *value, const char *unit, float *history, uint16_t spark_color);
+static void draw_bar(Rect r, const char *label, const char *value, const char *unit, float *history, uint16_t spark_color);
 static void draw_sparkline(GFXcanvas16 *canvas, int16_t x, int16_t y, int16_t w, int16_t h, float *history, uint16_t color);
 static void draw_diff(Rect r, const char *old_text, const char *new_text, uint16_t fg, uint16_t bg);
 static void history_push(float *history, float value);
@@ -126,9 +140,24 @@ static void history_minmax(float *history, uint8_t count, float *min_out, float 
 static void render_values(void);
 static void log_values(void);
 
+static double convert_Celsius_to_fahrenheit(double c) {
+    return (9.0/5.0)*c+32.0;
+}
+
+static double convert_fahrenheit_to_Celsius(double f) {
+    return (f-32.0)*5.0/9.0;
+}
+
+static double calcHeatIndex(double Temp, double Humid) {
+    Temp = convert_Celsius_to_fahrenheit(Temp);
+    double HumidIndex = -42.379 + (2.04901523 * Temp) + (10.14333127 * Humid) - (0.22475541 * Temp * Humid) - (0.00683783 * Temp * Temp) - (0.05481717 * Humid * Humid) + (0.00122874 * Temp * Temp * Humid) + (0.00085282 * Temp * Humid * Humid) - (0.00000199 * Temp * Temp * Humid * Humid);
+    return convert_fahrenheit_to_Celsius(HumidIndex);
+}
+
 void setup() {
   Serial.begin(115200);
   Wire.begin(I2C_SDA, I2C_SCL);
+  pinMode(SOIL_PIN, INPUT);
   dht.begin();
   wifi_connect();
 
@@ -142,7 +171,7 @@ void setup() {
 
   bg_color = tft.color565(0, 102, 255);
   card_color = tft.color565(10, 16, 36);
-  label_color = tft.color565(135, 0, 0);
+  label_color = tft.color565(255, 59, 59);
   value_color = tft.color565(255, 255, 255);
   good_color = tft.color565(0, 230, 118);
   bad_color = tft.color565(255, 82, 82);
@@ -150,15 +179,23 @@ void setup() {
   temp_spark_color = tft.color565(255, 152, 0);
   hum_spark_color = tft.color565(0, 188, 212);
   press_spark_color = tft.color565(76, 175, 80);
+  alt_spark_color = tft.color565(255, 235, 59);
+  rssi_spark_color = tft.color565(156, 39, 176);
   soil_spark_color = tft.color565(205, 220, 57);
+  heat_spark_color = tft.color565(255, 87, 34);
 
   bmp280_init();
   draw_shell();
 
   dht22_read();
   bmp280_read();
+  soil_read();
   current_online = WiFi.status() == WL_CONNECTED;
+  current_rssi = current_online ? WiFi.RSSI() : 0;
   current_uptime = millis() / 1000UL;
+  if (!isnan(current_temp) && !isnan(current_hum)) {
+    current_heat_index = (float)calcHeatIndex((double)current_temp, (double)current_hum);
+  }
   render_values();
   log_values();
   last_refresh = millis();
@@ -174,8 +211,13 @@ void loop() {
 
   dht22_read();
   bmp280_read();
+  soil_read();
   current_online = WiFi.status() == WL_CONNECTED;
+  current_rssi = current_online ? WiFi.RSSI() : 0;
   current_uptime = now / 1000UL;
+  if (!isnan(current_temp) && !isnan(current_hum)) {
+    current_heat_index = (float)calcHeatIndex((double)current_temp, (double)current_hum);
+  }
   render_values();
   log_values();
   last_refresh = now;
@@ -264,6 +306,7 @@ static int bmp280_read(void) {
     return 0;
   }
   current_pressure = bmp.readPressure() / 100.0f;
+  current_altitude = bmp.readAltitude(SEA_LEVEL_HPA);
   if (isnan(current_pressure) || current_pressure <= 0.0f) {
     Serial.println("bmp280 fail");
     return 0;
@@ -271,17 +314,25 @@ static int bmp280_read(void) {
   return 1;
 }
 
+static int soil_read(void) {
+  int raw = analogRead(SOIL_PIN);
+  Serial.print("Soil: ");
+  Serial.print(raw);
+  // Map raw value to 0-100%. Note: Higher raw usually means drier (depending on sensor).
+  // Formula: (raw - dry) * 100 / (wet - dry)
+  float perc = (float)(raw - SOIL_DRY) * 100.0f / (float)(SOIL_WET - SOIL_DRY);
+  current_soil = constrain(perc, 0.0f, 100.0f);
+  return 1;
+}
+
 static void draw_shell(void) {
   tft.fillScreen(bg_color);
-  tft.fillRoundRect(TEMP_CARD.x, TEMP_CARD.y, TEMP_CARD.w, TEMP_CARD.h, 6, card_color);
-  tft.fillRoundRect(HUM_CARD.x, HUM_CARD.y, HUM_CARD.w, HUM_CARD.h, 6, card_color);
-  tft.fillRoundRect(PRESS_CARD.x, PRESS_CARD.y, PRESS_CARD.w, PRESS_CARD.h, 6, card_color);
-  tft.fillRoundRect(SOIL_CARD.x, SOIL_CARD.y, SOIL_CARD.w, SOIL_CARD.h, 6, card_color);
-
-  draw_label(TEMP_CARD, "TEMP");
-  draw_label(HUM_CARD, "HUMIDITY");
-  draw_label(PRESS_CARD, "PRESSURE");
-  draw_label(SOIL_CARD, "SOIL");
+  tft.fillRoundRect(BAR_1.x, BAR_1.y, BAR_1.w, BAR_1.h, 4, card_color);
+  tft.fillRoundRect(BAR_2.x, BAR_2.y, BAR_2.w, BAR_2.h, 4, card_color);
+  tft.fillRoundRect(BAR_3.x, BAR_3.y, BAR_3.w, BAR_3.h, 4, card_color);
+  tft.fillRoundRect(BAR_4.x, BAR_4.y, BAR_4.w, BAR_4.h, 4, card_color);
+  tft.fillRoundRect(BAR_5.x, BAR_5.y, BAR_5.w, BAR_5.h, 4, card_color);
+  tft.fillRoundRect(BAR_6.x, BAR_6.y, BAR_6.w, BAR_6.h, 4, card_color);
 
   tft.setFont(NULL);
   tft.setTextColor(label_color);
@@ -294,45 +345,40 @@ static void draw_label(Rect r, const char *text) {
   tft.setFont(NULL);
   tft.setTextColor(label_color);
   tft.setTextSize(1);
-  tft.setCursor(r.x + 8, r.y + 8);
+  tft.setCursor(r.x + 6, r.y + 4);
   tft.print(text);
 }
 
-static void draw_card(Rect r, const char *value, const char *unit, float *history, uint16_t spark_color) {
-  int16_t area_x = r.x + 4;
-  int16_t area_y = r.y + 20;
-  int16_t area_w = r.w - 8;
-  int16_t area_h = r.h - 24;
-  size_t len = strlen(value);
+static void draw_bar(Rect r, const char *label, const char *value, const char *unit, float *history, uint16_t spark_color) {
+  int16_t area_x = r.x + 2;
+  int16_t area_y = r.y + 2;
+  int16_t area_w = r.w - 4;
+  int16_t area_h = r.h - 4;
 
   GFXcanvas16 canvas(area_w, area_h);
   canvas.fillScreen(card_color);
 
-  draw_sparkline(&canvas, 0, 0, area_w, SPARKLINE_H, history, spark_color);
-
-  if (len <= 5) {
-    canvas.setFont(&FreeSansBold18pt7b);
-  } else if (len <= 7) {
-    canvas.setFont(&FreeSansBold12pt7b);
-  } else {
-    canvas.setFont(&FreeSansBold9pt7b);
-  }
-  canvas.setTextColor(value_color);
-  canvas.setTextSize(1);
-
-  int16_t x1;
-  int16_t y1;
-  uint16_t w;
-  uint16_t h;
-  canvas.getTextBounds(value, 0, 0, &x1, &y1, &w, &h);
-  canvas.setCursor(((area_w - (int16_t)w) / 2) - x1, SPARKLINE_H + ((area_h - SPARKLINE_H - (int16_t)h) / 2) - y1 - 4);
-  canvas.print(value);
-
+  // Label (Top Left)
   canvas.setFont(NULL);
   canvas.setTextColor(label_color);
   canvas.setTextSize(1);
-  canvas.setCursor(area_w - ((int16_t)strlen(unit) * 6) - 4, area_h - 10);
-  canvas.print(unit);
+  canvas.setCursor(4, 2);
+  canvas.print(label);
+
+  // Sparkline (Bottom / Right overlap)
+  draw_sparkline(&canvas, 0, area_h - SPARKLINE_H, area_w, SPARKLINE_H, history, spark_color);
+
+  // Value and Unit (Top Right)
+  char full_val[32];
+  snprintf(full_val, sizeof(full_val), "%s %s", value, unit);
+  canvas.setFont(&FreeSansBold9pt7b);
+  canvas.setTextColor(value_color);
+  
+  int16_t x1, y1;
+  uint16_t w, h;
+  canvas.getTextBounds(full_val, 0, 0, &x1, &y1, &w, &h);
+  canvas.setCursor(area_w - w - 4, 14);
+  canvas.print(full_val);
 
   tft.drawRGBBitmap(area_x, area_y, canvas.getBuffer(), canvas.width(), canvas.height());
 }
@@ -382,15 +428,15 @@ static void draw_sparkline(GFXcanvas16 *canvas, int16_t x, int16_t y, int16_t w,
   float range = max_val - min_val;
   if (range < 0.001f) range = 1.0f;
 
-  uint16_t baseline_color = ((uint16_t)(40 & 0xF8) << 8) | ((uint16_t)(40 & 0xFC) << 3) | (40 >> 3);
-  canvas->drawFastHLine(x, y + h - 3, w, baseline_color);
+  uint16_t baseline_color = ((uint16_t)(30 & 0xF8) << 8) | ((uint16_t)(30 & 0xFC) << 3) | (30 >> 3);
+  canvas->drawFastHLine(x, y + h - 1, w, baseline_color);
 
   int16_t prev_x = -1;
   int16_t prev_y = -1;
 
   for (uint8_t i = 0; i < count; i++) {
     int16_t px = x + (int16_t)((i * (w - 1)) / (HISTORY_SIZE - 1));
-    int16_t py = y + h - (int16_t)(((history[i] - min_val) / range) * (h - 4)) - 2;
+    int16_t py = y + h - (int16_t)(((history[i] - min_val) / range) * (h - 2)) - 1;
 
     if (prev_x >= 0) {
       canvas->drawLine(prev_x, prev_y, px, py, color);
@@ -405,27 +451,36 @@ static void render_values(void) {
   if (!isnan(current_temp)) history_push(temp_history, current_temp);
   if (!isnan(current_hum)) history_push(hum_history, current_hum);
   if (!isnan(current_pressure)) history_push(press_history, current_pressure);
-  history_push(soil_history, current_soil);
+  if (!isnan(current_altitude)) history_push(alt_history, current_altitude);
+  history_push(rssi_history, (float)current_rssi);
+  if (!isnan(current_soil)) history_push(soil_history, current_soil);
+  if (!isnan(current_heat_index)) history_push(heat_history, current_heat_index);
 
   uint8_t next_index = history_index + 1;
   if (next_index >= HISTORY_SIZE) next_index = 0;
   history_index = next_index;
 
-  char temp[16];
-  char hum[16];
-  char press[16];
-  char soil[16];
-  char clock_text[16];
-  current_online = WiFi.status() == WL_CONNECTED;
-  current_rssi = current_online ? WiFi.RSSI() : 0; //measured in dBmm for signal strength 
+  char temp[16], hum[16], press[16], alt[16], rssi_bar[16], soil[16], clock_text[16], heat[16];
 
   if (isnan(current_temp)) snprintf(temp, sizeof(temp), "--");
   else snprintf(temp, sizeof(temp), "%.1f", current_temp);
+  
   if (isnan(current_hum)) snprintf(hum, sizeof(hum), "--");
   else snprintf(hum, sizeof(hum), "%.1f", current_hum);
+  
   if (isnan(current_pressure)) snprintf(press, sizeof(press), "--");
   else snprintf(press, sizeof(press), "%.1f", current_pressure);
-  snprintf(soil, sizeof(soil), "%.1f", current_soil);
+
+  if (isnan(current_altitude)) snprintf(alt, sizeof(alt), "--");
+  else snprintf(alt, sizeof(alt), "%.1f", current_altitude);
+  
+  snprintf(rssi_bar, sizeof(rssi_bar), "%d", current_rssi);
+  
+  if (isnan(current_soil)) snprintf(soil, sizeof(soil), "--");
+  else snprintf(soil, sizeof(soil), "%.1f", current_soil);
+
+  if (isnan(current_heat_index)) snprintf(heat, sizeof(heat), "--");
+  else snprintf(heat, sizeof(heat), "%.1f", current_heat_index);
 
   struct tm timeinfo;
   if (getLocalTime(&timeinfo, 0)) {
@@ -442,47 +497,50 @@ static void render_values(void) {
     shown_online = current_online;
   }
 
-  char rssi_text[8];
+  char rssi_hdr[8];
   if (current_online) {
-    snprintf(rssi_text, sizeof(rssi_text), "%ddB", current_rssi);
+    snprintf(rssi_hdr, sizeof(rssi_hdr), "%ddB", current_rssi);
   } else {
-    snprintf(rssi_text, sizeof(rssi_text), "--");
+    snprintf(rssi_hdr, sizeof(rssi_hdr), "--");
   }
 
-  if (first_frame || strcmp(rssi_text, shown_rssi) != 0) {
+  if (first_frame || strcmp(rssi_hdr, shown_rssi_hdr) != 0) {
     tft.setFont(NULL);
     tft.setTextColor(current_online ? label_color : bad_color, bg_color);
     tft.setTextSize(1);
     tft.setCursor(MARGIN + 40, 8);
-    tft.print(rssi_text);
-    strncpy(shown_rssi, rssi_text, sizeof(shown_rssi) - 1);
-    shown_rssi[sizeof(shown_rssi) - 1] = 0;
+    tft.print(rssi_hdr);
+    strncpy(shown_rssi_hdr, rssi_hdr, sizeof(shown_rssi_hdr) - 1);
   }
 
   if (first_frame || strcmp(clock_text, shown_clock) != 0) {
     draw_diff(CLOCK_AREA, shown_clock, clock_text, value_color, bg_color);
     strncpy(shown_clock, clock_text, sizeof(shown_clock) - 1);
-    shown_clock[sizeof(shown_clock) - 1] = 0;
   }
+
   if (first_frame || strcmp(temp, shown_temp) != 0) {
-    draw_card(TEMP_CARD, temp, "C",temp_history, temp_spark_color);
+    draw_bar(BAR_1, "TEMPERATURE", temp, "C", temp_history, temp_spark_color);
     strncpy(shown_temp, temp, sizeof(shown_temp) - 1);
-    shown_temp[sizeof(shown_temp) - 1] = 0;
   }
   if (first_frame || strcmp(hum, shown_hum) != 0) {
-    draw_card(HUM_CARD, hum, "%", hum_history, hum_spark_color);
+    draw_bar(BAR_2, "HUMIDITY", hum, "%", hum_history, hum_spark_color);
     strncpy(shown_hum, hum, sizeof(shown_hum) - 1);
-    shown_hum[sizeof(shown_hum) - 1] = 0;
   }
   if (first_frame || strcmp(press, shown_press) != 0) {
-    draw_card(PRESS_CARD, press, "hPa", press_history, press_spark_color);
+    draw_bar(BAR_3, "PRESSURE", press, "hPa", press_history, press_spark_color);
     strncpy(shown_press, press, sizeof(shown_press) - 1);
-    shown_press[sizeof(shown_press) - 1] = 0;
+  }
+  if (first_frame || strcmp(alt, shown_alt) != 0) {
+    draw_bar(BAR_4, "ALTITUDE", alt, "m", alt_history, alt_spark_color);
+    strncpy(shown_alt, alt, sizeof(shown_alt) - 1);
+  }
+  if (first_frame || strcmp(heat, shown_heat) != 0) {
+    draw_bar(BAR_5, "HEAT INDEX", heat, "C", heat_history, heat_spark_color);
+    strncpy(shown_heat, heat, sizeof(shown_heat) - 1);
   }
   if (first_frame || strcmp(soil, shown_soil) != 0) {
-    draw_card(SOIL_CARD, soil, "%", soil_history, soil_spark_color);
+    draw_bar(BAR_6, "SOIL MOISTURE", soil, "%", soil_history, soil_spark_color);
     strncpy(shown_soil, soil, sizeof(shown_soil) - 1);
-    shown_soil[sizeof(shown_soil) - 1] = 0;
   }
 
   first_frame = 0;
@@ -490,27 +548,18 @@ static void render_values(void) {
 
 static void log_values(void) {
   Serial.print("Temp: ");
-  if (isnan(current_temp)) {
-    Serial.print("--");
-  } else {
-    Serial.print(current_temp, 1);
-  }
-
-  Serial.print(" C  Humidity: ");
-  if (isnan(current_hum)) {
-    Serial.print("--");
-  } else {
-    Serial.print(current_hum, 1);
-  }
-
-  Serial.print(" %  Pressure: ");
-  if (isnan(current_pressure)) {
-    Serial.print("--");
-  } else {
-    Serial.print(current_pressure, 1);
-  }
-
-  Serial.print(" hPa  Soil: ");
+  Serial.print(current_temp, 1);
+  Serial.print(" C  Hum: ");
+  Serial.print(current_hum, 1);
+  Serial.print(" %  Pres: ");
+  Serial.print(current_pressure, 1);
+  Serial.print(" hPa  Alt: ");
+  Serial.print(current_altitude, 1);
+  Serial.print(" m  Heat: ");
+  Serial.print(current_heat_index, 1);
+  Serial.print(" C  RSSI: ");
+  Serial.print(current_rssi);
+  Serial.print(" dB  Soil: ");
   Serial.print(current_soil, 1);
   Serial.println(" %");
 }
