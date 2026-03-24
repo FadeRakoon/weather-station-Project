@@ -4,6 +4,13 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <string.h>
+#include <ctype.h>
+#include <rom/rtc.h> 
+#include <math.h>
+#include <PubSubClient.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <ArduinoJson.h>
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_BMP280.h>
@@ -12,8 +19,11 @@
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 
-TaskHandle_t xNTPHandle;
 #include "NTP.h"
+
+
+
+#define ARDUINOJSON_USE_DOUBLE      1
 
 #define TFT_DC 17
 #define TFT_CS 5
@@ -48,8 +58,21 @@ TaskHandle_t xNTPHandle;
 #define WIFI_RETRY_MS 10000UL
 #define DHT_WAIT_MS 2000UL
 
+// MQTT CLIENT CONFIG  
+static const char* pubtopic      = "620171573";                    // Add your ID number here
+static const char* subtopic[]    = {"620171573_sub","/elet2415"};  // Array of Topics(Strings) to subscribe to
+static const char* mqtt_server   = "www.yanacreations.com";         // Broker IP address or Domain name as a String 
+static uint16_t mqtt_port        = 1883;
+
 static const char *ssid = "Rakoon";
 static const char *password = "i_isARakoon";
+
+// TASK HANDLES 
+TaskHandle_t xMQTT_Connect          = NULL; 
+TaskHandle_t xNTPHandle             = NULL;  
+TaskHandle_t xLOOPHandle            = NULL;  
+TaskHandle_t xUpdateHandle          = NULL;
+TaskHandle_t xButtonCheckeHandle    = NULL;  
 
 typedef struct {
   int16_t x;
