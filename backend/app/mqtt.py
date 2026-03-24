@@ -91,6 +91,7 @@ class MQTT:
             # print(payload) # UNCOMMENT WHEN DEBUGGING
             # ADD YOUR CODE HERE TO PROCESS MESSAGE
             update = loads(payload) # CONVERT FROM JSON STRING TO JSON OBJECT
+            print(update) #print payload
             self.mongo.addUpdate(update) # INSERT INTO DATABASE
         except Exception as e:
             print(f"MQTT: UPDATE Error - {str(e)}")

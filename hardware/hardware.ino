@@ -19,8 +19,6 @@
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 
-#include "NTP.h"
-
 
 
 #define ARDUINOJSON_USE_DOUBLE      1
@@ -53,6 +51,7 @@
 #define BAR_H 44
 
 #define REFRESH_MS 2000UL
+#define MQTT_PUBLISH_MS 2000UL// MQTT publish interval (matches display refresh)
 #define HISTORY_SIZE 30
 #define SPARKLINE_H 28
 #define WIFI_RETRY_MS 10000UL
@@ -63,6 +62,8 @@ static const char* pubtopic      = "620171573";                    // Add your I
 static const char* subtopic[]    = {"620171573_sub","/elet2415"};  // Array of Topics(Strings) to subscribe to
 static const char* mqtt_server   = "www.yanacreations.com";         // Broker IP address or Domain name as a String 
 static uint16_t mqtt_port        = 1883;
+// Station identifier for data publishing
+static const char* station_id = "STATION_001";
 
 static const char *ssid = "Rakoon";
 static const char *password = "i_isARakoon";
@@ -73,6 +74,15 @@ TaskHandle_t xNTPHandle             = NULL;
 TaskHandle_t xLOOPHandle            = NULL;  
 TaskHandle_t xUpdateHandle          = NULL;
 TaskHandle_t xButtonCheckeHandle    = NULL;  
+TaskHandle_t xMQTT_Publish          = NULL;// Handle for MQTT publish task  
+
+// Forward declarations for mqtt.h
+void callback(char* topic, byte* payload, unsigned int length);
+void vButtonCheck(void* pvParameters);
+void vUpdate(void* pvParameters);
+
+#include "NTP.h"
+#include "mqtt.h"  
 
 typedef struct {
   int16_t x;
@@ -209,6 +219,12 @@ void setup() {
 
   bmp280_init();
   draw_shell();
+  
+  // Initialize MQTT connection and start publish task
+  if (WiFi.status() == WL_CONNECTED) {
+    initMQTT();
+    vUpdateFunction();
+  }
 
   dht22_read();
   bmp280_read();
@@ -585,4 +601,50 @@ static void log_values(void) {
   Serial.print(" dB  Soil: ");
   Serial.print(current_soil, 1);
   Serial.println(" %");
+}
+
+// MQTT message callback - handles incoming messages from subscribed topics
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("MQTT: Message received on topic: ");
+  Serial.println(topic);
+  Serial.print("Payload: ");
+  for (unsigned int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+// Button check task (placeholder for future use)
+void vButtonCheck(void* pvParameters) {
+  configASSERT(((uint32_t)pvParameters) == 1);
+  for (;;) {
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+  }
+}
+
+// MQTT publish task - sends sensor data to broker every MQTT_PUBLISH_MS
+void vUpdate(void * pvParameters) {
+  configASSERT(((uint32_t)pvParameters) == 1);
+  
+  StaticJsonDocument<512> doc;
+  char payload[512];
+  
+  for (;;) {
+    if (mqtt.connected()) {
+      doc["timestamp"] = time(nullptr);
+      doc["station_id"] = station_id;
+      doc["temperature"] = (double)current_temp;
+      doc["humidity"] = (double)current_hum;
+      doc["pressure"] = (double)current_pressure;
+      doc["altitude"] = (double)current_altitude;
+      doc["soil_moisture"] = (double)current_soil;
+      doc["heat_index"] = (double)current_heat_index;
+      doc["rssi"] = current_rssi;
+      
+      serializeJson(doc, payload);
+      mqtt.publish(pubtopic, payload);
+      Serial.println("MQTT: Published sensor data");
+    }
+    vTaskDelay(MQTT_PUBLISH_MS / portTICK_PERIOD_MS);
+  }
 }
