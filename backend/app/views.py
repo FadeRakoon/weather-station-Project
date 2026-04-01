@@ -25,40 +25,48 @@ from math import floor
 #   Routing for your application    #
 #####################################
 
+@app.route('/api/stations', methods=['GET'])
+def get_stations():
+    '''Returns list of unique station_ids from database'''
+    if request.method == "GET":
+        try:
+            stations = mongo.getDistinctStations()
+            return jsonify({"status": "success", "data": stations})
+        except Exception as e:
+            print(f"get_stations error: {str(e)}")
+    return jsonify({"status": "error", "data": []})
+
+
 @app.route('/api/climo/get/<start>/<end>', methods=['GET']) 
 def get_all(start, end):   
-    '''Returns all sensor data within the specified timestamp range'''
-   
+    '''Returns all sensor data within the specified timestamp range, optionally filtered by station_id'''
     if request.method == "GET":
         try:
             START = escape(start)
             END = escape(end)
-            data = mongo.getAllInRange(START, END)
+            station_id = request.args.get('station_id')
+            data = mongo.getAllInRange(START, END, station_id)
             if data:
                 return jsonify({"status": "found", "data": data})
-            
         except Exception as e:
             print(f"get_data error: {str(e)}")
-
     return jsonify({"status": "not found", "data": []})
    
 
 
 @app.route('/api/mmar/temperature/<start>/<end>', methods=['GET']) 
 def get_temperature_mmar(start, end):   
-    '''Returns min, max, avg, and range for temperature within timestamp range'''
-   
+    '''Returns min, max, avg, and range for temperature within timestamp range, optionally filtered by station_id'''
     if request.method == "GET": 
         try:
             START = escape(start)
             END = escape(end)
-            data = mongo.temperatureMMAR(START, END)
+            station_id = request.args.get('station_id')
+            data = mongo.temperatureMMAR(START, END, station_id)
             if data:
                 return jsonify({"status": "found", "data": data})
-            
         except Exception as e:
             print(f"get_temperature_mmar error: {str(e)}")
-
     return jsonify({"status": "not found", "data": []})
 
 
@@ -66,43 +74,39 @@ def get_temperature_mmar(start, end):
 
 @app.route('/api/mmar/humidity/<start>/<end>', methods=['GET']) 
 def get_humidity_mmar(start, end):   
-    '''Returns min, max, avg, and range for humidity within timestamp range'''
-   
+    '''Returns min, max, avg, and range for humidity within timestamp range, optionally filtered by station_id'''
     if request.method == "GET": 
         try:
             START = escape(start)
             END = escape(end)
-            data = mongo.humidityMMAR(START, END)
+            station_id = request.args.get('station_id')
+            data = mongo.humidityMMAR(START, END, station_id)
             if data:
                 return jsonify({"status": "found", "data": data})
-            
         except Exception as e:
             print(f"get_humidity_mmar error: {str(e)}")
-
     return jsonify({"status": "not found", "data": []})
 
 
 @app.route('/api/mmar/soil/<start>/<end>', methods=['GET']) 
 def get_soil_mmar(start, end):   
-    '''Returns min, max, avg, and range for soil moisture within timestamp range'''
-   
+    '''Returns min, max, avg, and range for soil moisture within timestamp range, optionally filtered by station_id'''
     if request.method == "GET": 
         try:
             START = escape(start)
             END = escape(end)
-            data = mongo.soilMoistureMMAR(START, END)
+            station_id = request.args.get('station_id')
+            data = mongo.soilMoistureMMAR(START, END, station_id)
             if data:
                 return jsonify({"status": "found", "data": data})
-            
         except Exception as e:
             print(f"get_soil_mmar error: {str(e)}")
-
     return jsonify({"status": "not found", "data": []})
 
 
 
 
-@app.route('/api/frequency/<variable>/<start>/<end>', methods=['GET']) 
+@app.route('/api/frequency/<variable>/<start>/<end>', methods=['GET'])
 def get_freq_distro(variable, start, end):   
     '''Returns frequency distribution for specified variable within timestamp range'''
    

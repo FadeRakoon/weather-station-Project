@@ -66,49 +66,72 @@ class DB:
         
        
 
-    def getAllInRange(self, start, end):
-        '''Returns all sensor data within the specified timestamp range'''
+    def getAllInRange(self, start, end, station_id=None):
+        '''Returns all sensor data within the specified timestamp range, optionally filtered by station_id'''
         try:
             remotedb = self.remoteMongo('mongodb://%s:%s@%s:%s' % (self.username, self.password, self.server, self.port), tls=self.tls)
-            result = list(remotedb.ELET2415.Station.find({"timestamp":{"$gte":int(start),"$lte":int(end)}}, {"_id":0}).sort("timestamp", 1))
+            query = {"timestamp": {"$gte": int(start), "$lte": int(end)}}
+            if station_id:
+                query["station_id"] = station_id
+            result = list(remotedb.ELET2415.Station.find(query, {"_id": 0}).sort("timestamp", 1))
         except Exception as e:
             msg = str(e)
-            print("getAllInRange error ", msg)            
-        else:                  
+            print("getAllInRange error ", msg)
+        else:
             return result
         
 
-    def humidityMMAR(self, start, end):
-        '''Returns min, max, avg, and range for humidity within timestamp range'''
+    def humidityMMAR(self, start, end, station_id=None):
+        '''Returns min, max, avg, and range for humidity within timestamp range, optionally filtered by station_id'''
         try:
             remotedb = self.remoteMongo('mongodb://%s:%s@%s:%s' % (self.username, self.password, self.server, self.port), tls=self.tls)
-            result = list(remotedb.ELET2415.Station.aggregate([{"$match": {"timestamp": {"$gte": int(start), "$lte": int(end)}}}, {"$group": {"_id": None, "humidity": {"$push": "$$ROOT.humidity"}}}, {"$project": {"_id": 0, "max": {"$max": "$humidity"}, "min": {"$min": "$humidity"},"avg": {"$avg": "$humidity"}, "range": {"$subtract": [{"$max": "$humidity"}, {"$min": "$humidity"}]}}}]))
+            query = {"timestamp": {"$gte": int(start), "$lte": int(end)}}
+            if station_id:
+                query["station_id"] = station_id
+            result = list(remotedb.ELET2415.Station.aggregate([{"$match": query}, {"$group": {"_id": None, "humidity": {"$push": "$$ROOT.humidity"}}}, {"$project": {"_id": 0, "max": {"$max": "$humidity"}, "min": {"$min": "$humidity"},"avg": {"$avg": "$humidity"}, "range": {"$subtract": [{"$max": "$humidity"}, {"$min": "$humidity"}]}}}]))
         except Exception as e:
             msg = str(e)
-            print("humidityMMAR error ", msg)            
-        else:                  
+            print("humidityMMAR error ", msg)
+        else:
             return result
     
-    def temperatureMMAR(self, start, end):
-        '''Returns min, max, avg, and range for temperature within timestamp range'''
+    def temperatureMMAR(self, start, end, station_id=None):
+        '''Returns min, max, avg, and range for temperature within timestamp range, optionally filtered by station_id'''
         try:
             remotedb = self.remoteMongo('mongodb://%s:%s@%s:%s' % (self.username, self.password, self.server, self.port), tls=self.tls)
-            result = list(remotedb.ELET2415.Station.aggregate([{"$match": {"timestamp": {"$gte": int(start), "$lte": int(end)}}}, {"$group": {"_id": None, "temperature": {"$push": "$$ROOT.temperature"}}}, {"$project": {"_id": 0, "max": {"$max": "$temperature"}, "min": {"$min": "$temperature"},"avg": {"$avg": "$temperature"}, "range": {"$subtract": [{"$max": "$temperature"}, {"$min": "$temperature"}]}}}]))
+            query = {"timestamp": {"$gte": int(start), "$lte": int(end)}}
+            if station_id:
+                query["station_id"] = station_id
+            result = list(remotedb.ELET2415.Station.aggregate([{"$match": query}, {"$group": {"_id": None, "temperature": {"$push": "$$ROOT.temperature"}}}, {"$project": {"_id": 0, "max": {"$max": "$temperature"}, "min": {"$min": "$temperature"},"avg": {"$avg": "$temperature"}, "range": {"$subtract": [{"$max": "$temperature"}, {"$min": "$temperature"}]}}}]))
         except Exception as e:
             msg = str(e)
-            print("temperatureMMAR error ", msg)            
-        else:                  
+            print("temperatureMMAR error ", msg)
+        else:
             return result
 
-    def soilMoistureMMAR(self, start, end):
-        '''Returns min, max, avg, and range for soil moisture within timestamp range'''
+    def soilMoistureMMAR(self, start, end, station_id=None):
+        '''Returns min, max, avg, and range for soil moisture within timestamp range, optionally filtered by station_id'''
         try:
             remotedb = self.remoteMongo('mongodb://%s:%s@%s:%s' % (self.username, self.password, self.server, self.port), tls=self.tls)
-            result = list(remotedb.ELET2415.Station.aggregate([{"$match": {"timestamp": {"$gte": int(start), "$lte": int(end)}}}, {"$group": {"_id": None, "soil_moisture": {"$push": "$$ROOT.soil_moisture"}}}, {"$project": {"_id": 0, "max": {"$max": "$soil_moisture"}, "min": {"$min": "$soil_moisture"},"avg": {"$avg": "$soil_moisture"}, "range": {"$subtract": [{"$max": "$soil_moisture"}, {"$min": "$soil_moisture"}]}}}]))
+            query = {"timestamp": {"$gte": int(start), "$lte": int(end)}}
+            if station_id:
+                query["station_id"] = station_id
+            result = list(remotedb.ELET2415.Station.aggregate([{"$match": query}, {"$group": {"_id": None, "soil_moisture": {"$push": "$$ROOT.soil_moisture"}}}, {"$project": {"_id": 0, "max": {"$max": "$soil_moisture"}, "min": {"$min": "$soil_moisture"},"avg": {"$avg": "$soil_moisture"}, "range": {"$subtract": [{"$max": "$soil_moisture"}, {"$min": "$soil_moisture"}]}}}]))
         except Exception as e:
             msg = str(e)
-            print("soilMoistureMMAR error ", msg)            
-        else:                  
+            print("soilMoistureMMAR error ", msg)
+        else:
+            return result
+
+    def getDistinctStations(self):
+        '''Returns list of unique station_ids from database'''
+        try:
+            remotedb = self.remoteMongo('mongodb://%s:%s@%s:%s' % (self.username, self.password, self.server, self.port), tls=self.tls)
+            result = remotedb.ELET2415.Station.distinct("station_id")
+        except Exception as e:
+            msg = str(e)
+            print("getDistinctStations error ", msg)
+        else:
             return result
 
 
