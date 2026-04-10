@@ -23,6 +23,10 @@
 
 #define ARDUINOJSON_USE_DOUBLE      1
 
+#define SW_1 8 //left
+#define SW_2 11 //middle
+#define SW_3 34 //right
+
 #define TFT_DC 17
 #define TFT_CS 5
 #define TFT_RST 16
@@ -32,11 +36,11 @@
 
 #define I2C_SDA 21
 #define I2C_SCL 22
-#define DHT_PIN 32
+#define DHT_PIN 4
 #define DHT_TYPE DHT22
 
-#define SOIL_PIN 33
-#define SOIL_DRY  2500  // Raw ADC value in dry air / dry soil
+#define SOIL_PIN 32
+#define SOIL_DRY  2400  // Raw ADC value in dry air / dry soil
 #define SOIL_WET  1100  // Raw ADC value in water / saturated soil
 
 #define SEA_LEVEL_HPA   1013.25 //to maths altitude
@@ -98,6 +102,7 @@ static const Rect BAR_4 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 3, BAR
 static const Rect BAR_5 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 4, BAR_W, BAR_H};
 static const Rect BAR_6 = {MARGIN, HEADER_H + MARGIN + (BAR_H + GUTTER) * 5, BAR_W, BAR_H};
 static const Rect CLOCK_AREA = {SCREEN_W - 60, 0, 54, HEADER_H};
+static const Rect STATION_AREA = {MARGIN + 78, 0, 90, HEADER_H};
 
 static Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
 static Adafruit_BMP280 bmp;
@@ -136,6 +141,7 @@ static char shown_soil[16] = "";
 static char shown_rssi_bar[16] = "";
 static char shown_clock[16] = "";
 static char shown_rssi_hdr[8] = "";
+static char shown_station_id[24] = "";
 static char shown_heat[16] = "";
 static int shown_online = -1;
 static int first_frame = 1;
@@ -555,6 +561,11 @@ static void render_values(void) {
   if (first_frame || strcmp(clock_text, shown_clock) != 0) {
     draw_diff(CLOCK_AREA, shown_clock, clock_text, value_color, bg_color);
     strncpy(shown_clock, clock_text, sizeof(shown_clock) - 1);
+  }
+
+  if (first_frame || strcmp(station_id, shown_station_id) != 0) {
+    draw_diff(STATION_AREA, shown_station_id, station_id, value_color, bg_color);
+    strncpy(shown_station_id, station_id, sizeof(shown_station_id) - 1);
   }
 
   if (first_frame || strcmp(temp, shown_temp) != 0) {
